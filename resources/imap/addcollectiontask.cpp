@@ -32,11 +32,12 @@
 #include <kimap/subscribejob.h>
 
 #include <akonadi/collectiondeletejob.h>
+#include <KCompositeJob>
 
 #include "jobcomposer.h"
 
 AddCollectionTask::AddCollectionTask(ResourceStateInterface::Ptr resource, QObject *parent)
-  : ResourceTask(DeferIfNoSession, resource, parent), m_pendingJobs(0), m_session(0)
+  : ResourceTask(DeferIfNoSession, resource, parent), m_session(0)
 {
 }
 
@@ -55,7 +56,6 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
     }
 
     const QChar separator = separatorCharacter();
-    m_pendingJobs = 0;
     m_session = session;
     m_collection = collection();
     m_collection.setName(m_collection.name().replace(separator, QString()));
@@ -113,6 +113,8 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
 
         const QMap<QByteArray, QByteArray> annotations = attribute->annotations();
 
+        auto compositejob = new ParallelCompositeJob(&t);
+
         foreach (const QByteArray &entry, annotations.keys()) { //krazy:exclude=foreach
             KIMAP::SetMetaDataJob *job = new KIMAP::SetMetaDataJob(m_session);
             if (serverCapabilities().contains(QLatin1String("METADATA"))) {
@@ -128,11 +130,9 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
             } else {
                 job->addMetaData(entry, annotations[entry]);
             }
-
-            m_pendingJobs++;
-
-            t.run(job);
+            compositejob->addSubjob(job);
         }
+        t.run(compositejob);
     });
     task->add([this](JobComposer &t, KJob *job){
         if (job->error()) {
@@ -140,11 +140,7 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
                             collection().name(), job->errorText()));
         }
 
-        m_pendingJobs--;
-
-        if (m_pendingJobs == 0) {
-            changeCommitted(m_collection);
-        }
+        changeCommitted(m_collection);
     });
     task->start();
 }

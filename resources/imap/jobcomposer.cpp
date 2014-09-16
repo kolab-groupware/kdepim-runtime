@@ -70,3 +70,36 @@ void JobComposer::onResult(KJob *job)
     //TODO error handling
     processNext(job);
 }
+
+
+ParallelCompositeJob::ParallelCompositeJob(QObject *parent)
+    :KCompositeJob(parent)
+{
+
+}
+
+ParallelCompositeJob::~ParallelCompositeJob()
+{
+
+}
+
+void ParallelCompositeJob::start()
+{
+    Q_FOREACH (KJob *job, subjobs()) {
+        job->start();
+    }
+}
+
+bool ParallelCompositeJob::addSubjob(KJob *job)
+{
+    return KCompositeJob::addSubjob(job);
+}
+
+void ParallelCompositeJob::slotResult(KJob *job)
+{
+    KCompositeJob::slotResult(job);
+    if (subjobs().isEmpty()) {
+        emitResult();
+    }
+}
+

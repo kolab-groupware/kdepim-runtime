@@ -41,7 +41,6 @@ protected:
 
 private:
   Akonadi::Collection m_collection;
-  uint m_pendingJobs;
   KIMAP::Session *m_session;
 };
 

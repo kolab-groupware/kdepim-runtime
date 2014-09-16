@@ -4,6 +4,7 @@
 
 #include <KDebug>
 #include <KJob>
+#include <KCompositeJob>
 #include <QString>
 #include <QQueue>
 
@@ -67,6 +68,21 @@ private Q_SLOTS:
 private:
     void processNext(KJob*);
     QQueue<std::function<void(JobComposer&, KJob*)> > mContinuationQueue;
+};
+
+class ParallelCompositeJob : public KCompositeJob
+{
+    Q_OBJECT
+public:
+    explicit ParallelCompositeJob(QObject *parent = 0);
+    virtual ~ParallelCompositeJob();
+
+    void start();
+    bool addSubjob(KJob*);
+
+protected Q_SLOTS:
+    virtual void slotResult(KJob *job);
+
 };
 
 #endif
