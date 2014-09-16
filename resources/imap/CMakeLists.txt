@@ -5,6 +5,7 @@ include_directories(
 )
 
 set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${KDE4_ENABLE_EXCEPTIONS}" )
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
 
 option(IMAPRESOURCE_NO_SOLID "Disable the use of solid in the imap resource" FALSE)
 if(IMAPRESOURCE_NO_SOLID)
@@ -25,6 +26,7 @@ set( imapresource_LIB_SRCS
   imapaccount.cpp
   imapflags.cpp
   imapresourcebase.cpp
+  jobcomposer.cpp
   messagehelper.cpp
   movecollectiontask.cpp
   moveitemstask.cpp

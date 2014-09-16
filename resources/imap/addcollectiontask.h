@@ -36,11 +36,6 @@ public:
   explicit AddCollectionTask( ResourceStateInterface::Ptr resource, QObject *parent = 0 );
   virtual ~AddCollectionTask();
 
-private slots:
-  void onCreateDone( KJob *job );
-  void onSubscribeDone( KJob *job );
-  void onSetMetaDataDone( KJob *job );
-
 protected:
   virtual void doStart( KIMAP::Session *session );
 
