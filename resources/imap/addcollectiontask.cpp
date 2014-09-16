@@ -45,6 +45,30 @@ AddCollectionTask::~AddCollectionTask()
 {
 }
 
+KJob *AddCollectionTask::setAnnotations(const QMap<QByteArray, QByteArray> &annotations)
+{
+    auto compositejob = new ParallelCompositeJob;
+
+    foreach (const QByteArray &entry, annotations.keys()) { //krazy:exclude=foreach
+        KIMAP::SetMetaDataJob *job = new KIMAP::SetMetaDataJob(m_session);
+        if (serverCapabilities().contains(QLatin1String("METADATA"))) {
+            job->setServerCapability(KIMAP::MetaDataJobBase::Metadata);
+        } else {
+            job->setServerCapability(KIMAP::MetaDataJobBase::Annotatemore);
+        }
+        job->setMailBox(mailBoxForCollection(m_collection));
+
+        if (!entry.startsWith("/shared") && !entry.startsWith("/private")) {
+            //Support for legacy annotations that don't include the prefix
+            job->addMetaData(QByteArray("/shared") + entry, annotations[entry]);
+        } else {
+            job->addMetaData(entry, annotations[entry]);
+        }
+        compositejob->addSubjob(job);
+    }
+    return compositejob;
+}
+
 void AddCollectionTask::doStart(KIMAP::Session *session)
 {
     if (parentCollection().remoteId().isEmpty()) {
@@ -71,38 +95,34 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
 
     kDebug(5327) << "New folder: " << newMailBox;
 
-
     auto task = new JobComposer;
     task->add([&](JobComposer &t, KJob *job){
-        kDebug() << "create";
         KIMAP::CreateJob *createJob = new KIMAP::CreateJob(session);
         createJob->setMailBox(newMailBox);
-        t.run(createJob);
-    });
-    task->add([this](JobComposer &t, KJob *job){
-        kDebug() << "created";
-        if (job->error()) {
+        t.run(createJob, [this](JobComposer &t, KJob *job) {
             emitError(i18n("Failed to create the folder '%1' on the IMAP server. ",
                             m_collection.name()));
             cancelTask(job->errorString());
-        } else {
-            // Automatically subscribe to newly created mailbox
-            KIMAP::CreateJob *create = static_cast<KIMAP::CreateJob*>(job);
-
-            KIMAP::SubscribeJob *subscribe = new KIMAP::SubscribeJob(create->session());
-            subscribe->setMailBox(create->mailBox());
-
-            t.run(subscribe);
-        }
+            return false;
+        });
     });
     task->add([this](JobComposer &t, KJob *job){
-        kDebug() << "subscribed";
-        if (job->error() && isSubscriptionEnabled()) {
-            emitWarning(i18n("Failed to subscribe to the folder '%1' on the IMAP server. "
-                            "It will disappear on next sync. Use the subscription dialog to overcome that",
-                            m_collection.name()));
-        }
+        // Automatically subscribe to newly created mailbox
+        KIMAP::CreateJob *create = static_cast<KIMAP::CreateJob*>(job);
 
+        KIMAP::SubscribeJob *subscribe = new KIMAP::SubscribeJob(create->session());
+        subscribe->setMailBox(create->mailBox());
+
+        t.run(subscribe, [this](JobComposer &t, KJob *job) {
+            if (isSubscriptionEnabled()) {
+                emitWarning(i18n("Failed to subscribe to the folder '%1' on the IMAP server. "
+                                "It will disappear on next sync. Use the subscription dialog to overcome that",
+                                m_collection.name()));
+            }
+            return true;
+        });
+    });
+    task->add([this](JobComposer &t, KJob *job){
         const Akonadi::CollectionAnnotationsAttribute *attribute = m_collection.attribute<Akonadi::CollectionAnnotationsAttribute>();
         if (!attribute || !serverSupportsAnnotations()) {
             // we are finished
@@ -111,35 +131,16 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
             return;
         }
 
-        const QMap<QByteArray, QByteArray> annotations = attribute->annotations();
-
-        auto compositejob = new ParallelCompositeJob(&t);
-
-        foreach (const QByteArray &entry, annotations.keys()) { //krazy:exclude=foreach
-            KIMAP::SetMetaDataJob *job = new KIMAP::SetMetaDataJob(m_session);
-            if (serverCapabilities().contains(QLatin1String("METADATA"))) {
-                job->setServerCapability(KIMAP::MetaDataJobBase::Metadata);
-            } else {
-                job->setServerCapability(KIMAP::MetaDataJobBase::Annotatemore);
+        t.run(setAnnotations(attribute->annotations()), [this](JobComposer &t, KJob *job) {
+            if (job->error()) {
+                emitWarning(i18n("Failed to subscribe to the folder '%1' on the IMAP server. "
+                                "It will disappear on next sync. Use the subscription dialog to overcome that",
+                                m_collection.name()));
             }
-            job->setMailBox(mailBoxForCollection(m_collection));
-
-            if (!entry.startsWith("/shared") && !entry.startsWith("/private")) {
-                //Support for legacy annotations that don't include the prefix
-                job->addMetaData(QByteArray("/shared") + entry, annotations[entry]);
-            } else {
-                job->addMetaData(entry, annotations[entry]);
-            }
-            compositejob->addSubjob(job);
-        }
-        t.run(compositejob);
+            return true;
+        });
     });
     task->add([this](JobComposer &t, KJob *job){
-        if (job->error()) {
-            emitWarning(i18n("Failed to write some annotations for '%1' on the IMAP server. %2",
-                            collection().name(), job->errorText()));
-        }
-
         changeCommitted(m_collection);
     });
     task->start();

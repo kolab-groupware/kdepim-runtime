@@ -43,6 +43,18 @@ void AsyncTask::onResult(KJob *job)
     }
 }
 
+JobComposer::JobComposer(QObject *parent)
+    :KJob(parent),
+    mCurrentJob(0)
+{
+
+}
+
+JobComposer::~JobComposer()
+{
+
+}
+
 void JobComposer::start()
 {
     processNext(0);
@@ -52,6 +64,10 @@ void JobComposer::processNext(KJob *job)
 {
     const std::function<void(JobComposer&, KJob*)> jobContinuation = mContinuationQueue.dequeue();
     jobContinuation(*this, job);
+    //No job was started during the continuation, we assume that means we're done
+    if (!mCurrentJob) {
+        emitResult();
+    }
 }
 
 void JobComposer::add(const std::function<void(JobComposer&, KJob*)> &jobContinuation)
@@ -61,13 +77,29 @@ void JobComposer::add(const std::function<void(JobComposer&, KJob*)> &jobContinu
 
 void JobComposer::run(KJob *job)
 {
+    mCurrentJob = job;
     connect(job, SIGNAL(result(KJob*)), this, SLOT(onResult(KJob*)));
     job->start();
 }
 
+void JobComposer::run(KJob *job, const std::function<bool(JobComposer&, KJob*)> &errorHandler)
+{
+    mErrorHandler = errorHandler;
+    run(job);
+}
+
 void JobComposer::onResult(KJob *job)
 {
-    //TODO error handling
+    mCurrentJob = 0;
+    if (job->error()) {
+        if (mErrorHandler) {
+            setError(KJob::UserDefinedError);
+            if (!mErrorHandler(*this, job)) {
+                emitResult();
+                return;
+            }
+        }
+    }
     processNext(job);
 }
 

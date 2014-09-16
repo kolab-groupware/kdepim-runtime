@@ -58,9 +58,13 @@ class JobComposer : public KJob
 {
     Q_OBJECT
 public:
+    explicit JobComposer(QObject *parent = 0);
+    virtual ~JobComposer();
+
     void start();
     void add(const std::function<void(JobComposer&, KJob*)> &jobContinuation);
     void run(KJob*);
+    void run(KJob*, const std::function<bool(JobComposer&, KJob*)> &errorHandler);
 
 private Q_SLOTS:
     void onResult(KJob*);
@@ -68,6 +72,8 @@ private Q_SLOTS:
 private:
     void processNext(KJob*);
     QQueue<std::function<void(JobComposer&, KJob*)> > mContinuationQueue;
+    std::function<bool(JobComposer&, KJob*)> mErrorHandler;
+    KJob *mCurrentJob;
 };
 
 class ParallelCompositeJob : public KCompositeJob
