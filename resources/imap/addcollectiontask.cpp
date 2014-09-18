@@ -37,7 +37,7 @@
 #include "jobcomposer.h"
 
 AddCollectionTask::AddCollectionTask(ResourceStateInterface::Ptr resource, QObject *parent)
-  : ResourceTask(DeferIfNoSession, resource, parent), m_session(0)
+  : ResourceTask(DeferIfNoSession, resource, parent)
 {
 }
 
@@ -45,18 +45,18 @@ AddCollectionTask::~AddCollectionTask()
 {
 }
 
-KJob *AddCollectionTask::setAnnotations(const QMap<QByteArray, QByteArray> &annotations)
+KJob *AddCollectionTask::setAnnotations(const QMap<QByteArray, QByteArray> &annotations, const Akonadi::Collection &collection, KIMAP::Session *session)
 {
     auto compositejob = new ParallelCompositeJob;
 
     foreach (const QByteArray &entry, annotations.keys()) { //krazy:exclude=foreach
-        KIMAP::SetMetaDataJob *job = new KIMAP::SetMetaDataJob(m_session);
+        KIMAP::SetMetaDataJob *job = new KIMAP::SetMetaDataJob(session);
         if (serverCapabilities().contains(QLatin1String("METADATA"))) {
             job->setServerCapability(KIMAP::MetaDataJobBase::Metadata);
         } else {
             job->setServerCapability(KIMAP::MetaDataJobBase::Annotatemore);
         }
-        job->setMailBox(mailBoxForCollection(m_collection));
+        job->setMailBox(mailBoxForCollection(collection));
 
         if (!entry.startsWith("/shared") && !entry.startsWith("/private")) {
             //Support for legacy annotations that don't include the prefix
@@ -80,10 +80,9 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
     }
 
     const QChar separator = separatorCharacter();
-    m_session = session;
-    m_collection = collection();
-    m_collection.setName(m_collection.name().replace(separator, QString()));
-    m_collection.setRemoteId(separator + m_collection.name());
+    Akonadi::Collection col = collection();
+    col.setName(col.name().replace(separator, QString()));
+    col.setRemoteId(separator + col.name());
 
     QString newMailBox = mailBoxForCollection(parentCollection());
 
@@ -91,7 +90,7 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
         newMailBox += separator;
     }
 
-    newMailBox += m_collection.name();
+    newMailBox += col.name();
 
     kDebug(5327) << "New folder: " << newMailBox;
 
@@ -99,49 +98,49 @@ void AddCollectionTask::doStart(KIMAP::Session *session)
     task->add([&](JobComposer &t, KJob *job){
         KIMAP::CreateJob *createJob = new KIMAP::CreateJob(session);
         createJob->setMailBox(newMailBox);
-        t.run(createJob, [this](JobComposer &t, KJob *job) {
+        t.run(createJob, [this, col](JobComposer &t, KJob *job) {
             emitError(i18n("Failed to create the folder '%1' on the IMAP server. ",
-                            m_collection.name()));
+                            col.name()));
             cancelTask(job->errorString());
             return false;
         });
     });
-    task->add([this](JobComposer &t, KJob *job){
+    task->add([this, col](JobComposer &t, KJob *job){
         // Automatically subscribe to newly created mailbox
         KIMAP::CreateJob *create = static_cast<KIMAP::CreateJob*>(job);
 
         KIMAP::SubscribeJob *subscribe = new KIMAP::SubscribeJob(create->session());
         subscribe->setMailBox(create->mailBox());
 
-        t.run(subscribe, [this](JobComposer &t, KJob *job) {
+        t.run(subscribe, [this, col](JobComposer &t, KJob *job) {
             if (isSubscriptionEnabled()) {
                 emitWarning(i18n("Failed to subscribe to the folder '%1' on the IMAP server. "
                                 "It will disappear on next sync. Use the subscription dialog to overcome that",
-                                m_collection.name()));
+                                col.name()));
             }
             return true;
         });
     });
-    task->add([this](JobComposer &t, KJob *job){
-        const Akonadi::CollectionAnnotationsAttribute *attribute = m_collection.attribute<Akonadi::CollectionAnnotationsAttribute>();
+    task->add([this, col, session](JobComposer &t, KJob *job){
+        const Akonadi::CollectionAnnotationsAttribute *attribute = col.attribute<Akonadi::CollectionAnnotationsAttribute>();
         if (!attribute || !serverSupportsAnnotations()) {
             // we are finished
-            changeCommitted(m_collection);
+            changeCommitted(col);
             synchronizeCollectionTree();
             return;
         }
 
-        t.run(setAnnotations(attribute->annotations()), [this](JobComposer &t, KJob *job) {
+        t.run(setAnnotations(attribute->annotations(), col, session), [this, col](JobComposer &t, KJob *job) {
             if (job->error()) {
                 emitWarning(i18n("Failed to subscribe to the folder '%1' on the IMAP server. "
                                 "It will disappear on next sync. Use the subscription dialog to overcome that",
-                                m_collection.name()));
+                                col.name()));
             }
             return true;
         });
     });
-    task->add([this](JobComposer &t, KJob *job){
-        changeCommitted(m_collection);
+    task->add([this, col](JobComposer &t, KJob *job){
+        changeCommitted(col);
     });
     task->start();
 }

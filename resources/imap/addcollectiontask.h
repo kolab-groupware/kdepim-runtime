@@ -40,9 +40,7 @@ protected:
   virtual void doStart( KIMAP::Session *session );
 
 private:
-  KJob *setAnnotations(const QMap<QByteArray, QByteArray> &annotations);
-  Akonadi::Collection m_collection;
-  KIMAP::Session *m_session;
+  KJob *setAnnotations(const QMap<QByteArray, QByteArray> &annotations, const Akonadi::Collection &collection, KIMAP::Session *session);
 };
 
 #endif
